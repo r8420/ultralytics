@@ -792,7 +792,7 @@ class Model(nn.Module):
                    if v is None:
                       del config[k]
                 overrides.update(config)
-            del overrides['hyp']
+            #del overrides['hyp']
             del kwargs['hyp']
         custom = {
             # NOTE: handle the case when 'cfg' includes 'data'.
