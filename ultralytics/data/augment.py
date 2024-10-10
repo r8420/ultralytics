@@ -843,7 +843,7 @@ class Albumentations:
                 A.CLAHE(p=0.01),
                 A.RandomBrightnessContrast(p=0.3),
                 A.RandomGamma(p=0.0),
-                A.ImageCompression(quality_lower=75, p=0.2, compression_type=A.augmentations.transforms.ImageCompression.ImageCompressionType.WEBP),
+                A.ImageCompression(quality_lower=75, p=0.0, compression_type=A.augmentations.transforms.ImageCompression.ImageCompressionType.WEBP),
                 A.GaussNoise(p=0.2),
                 A.Spatter(p=0.1),
             ]
