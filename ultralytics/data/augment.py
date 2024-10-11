@@ -1,5 +1,6 @@
 # Ultralytics YOLO 🚀, AGPL-3.0 license
 
+import copy
 import math
 import random
 from copy import deepcopy
@@ -654,6 +655,47 @@ class Mosaic(BaseMixTransform):
         final_labels["img"] = img3[-self.border[0] : self.border[0], -self.border[1] : self.border[1]]
         return final_labels
 
+    def visualize_mosaic(self, labels):
+        import cv2
+        import numpy as np
+
+        img = labels["img"].copy()
+        instances = labels["instances"]
+        bboxes = instances._bboxes.bboxes
+
+        img_size = img.shape[0]  # Assuming square images
+        target_size = 1280*0.9
+
+        # Calculate the coordinates of the center region
+        x_center = img_size // 2
+        y_center = img_size // 2
+        half_target = target_size // 2
+        x_start = x_center - half_target
+        y_start = y_center - half_target
+        x_end = x_center + half_target
+        y_end = y_center + half_target
+
+        # Draw bounding boxes
+        for bbox in bboxes:
+            x_min, y_min, x_max, y_max = [int(coord) for coord in bbox]
+            color = (0, 255, 0)  # Green for bounding boxes
+            cv2.rectangle(img, (x_min, y_min), (x_max, y_max), color, 2)
+
+        # Draw the center region rectangle
+        cv2.rectangle(img, (x_start, y_start), (x_end, y_end), (255, 0, 0), 2)  # Blue rectangle
+
+        # Display the image
+
+        height, width = img.shape[:2]
+        scale_factor=0.5
+        new_size = (int(width * scale_factor), int(height * scale_factor))
+        img_resized = cv2.resize(img, new_size, interpolation=cv2.INTER_AREA)
+
+        cv2.imshow('Mosaic', img_resized)
+        cv2.waitKey(0)  # Wait for a key press to proceed
+        cv2.destroyAllWindows()
+
+
     def _mosaic4(self, labels):
         """
         Creates a 2x2 image mosaic from four input images.
@@ -668,48 +710,105 @@ class Mosaic(BaseMixTransform):
         Returns:
             (Dict): A dictionary containing the mosaic image and updated labels. The 'img' key contains the mosaic
                 image as a numpy array, and other keys contain the combined and adjusted labels for all four images.
-
-        Examples:
-            >>> mosaic = Mosaic(dataset, imgsz=640, p=1.0, n=4)
-            >>> labels = {
-            ...     "img": np.random.rand(480, 640, 3),
-            ...     "mix_labels": [{"img": np.random.rand(480, 640, 3)} for _ in range(3)],
-            ... }
-            >>> result = mosaic._mosaic4(labels)
-            >>> assert result["img"].shape == (1280, 1280, 3)
         """
-        mosaic_labels = []
         s = self.imgsz
-        yc, xc = (int(random.uniform(-x, 2 * s + x)) for x in self.border)  # mosaic center x, y
-        for i in range(4):
-            labels_patch = labels if i == 0 else labels["mix_labels"][i - 1]
-            # Load image
-            img = labels_patch["img"]
-            h, w = labels_patch.pop("resized_shape")
+        target_size = 1280*0.9  # The central region size to check
+        temp_labels = None
+        final_labels = None
+        highest_bbox_count = -5
 
-            # Place img in img4
-            if i == 0:  # top left
-                img4 = np.full((s * 2, s * 2, img.shape[2]), 114, dtype=np.uint8)  # base image with 4 tiles
-                x1a, y1a, x2a, y2a = max(xc - w, 0), max(yc - h, 0), xc, yc  # xmin, ymin, xmax, ymax (large image)
-                x1b, y1b, x2b, y2b = w - (x2a - x1a), h - (y2a - y1a), w, h  # xmin, ymin, xmax, ymax (small image)
-            elif i == 1:  # top right
-                x1a, y1a, x2a, y2a = xc, max(yc - h, 0), min(xc + w, s * 2), yc
-                x1b, y1b, x2b, y2b = 0, h - (y2a - y1a), min(w, x2a - x1a), h
-            elif i == 2:  # bottom left
-                x1a, y1a, x2a, y2a = max(xc - w, 0), yc, xc, min(s * 2, yc + h)
-                x1b, y1b, x2b, y2b = w - (x2a - x1a), 0, w, min(y2a - y1a, h)
-            elif i == 3:  # bottom right
-                x1a, y1a, x2a, y2a = xc, yc, min(xc + w, s * 2), min(s * 2, yc + h)
-                x1b, y1b, x2b, y2b = 0, 0, min(w, x2a - x1a), min(y2a - y1a, h)
+        try_count = 10
+        for t in range(try_count):
+            # print(f"attempt {t}")
+            yc, xc = (int(random.uniform(-x, 2 * s + x)) for x in self.border)  # mosaic center x, y
+            bbox_count = 0
+            mosaic_labels = []
+            labels_copy = copy.deepcopy(labels)
+            for i in range(4):
+                labels_patch = labels_copy if i == 0 else labels_copy["mix_labels"][i - 1]
+                # Load image
+                img = labels_patch["img"]
+                h, w = labels_patch.pop("resized_shape")
 
-            img4[y1a:y2a, x1a:x2a] = img[y1b:y2b, x1b:x2b]  # img4[ymin:ymax, xmin:xmax]
-            padw = x1a - x1b
-            padh = y1a - y1b
+                # Place img in img4
+                if i == 0:  # top left
+                    img4 = np.full((s * 2, s * 2, img.shape[2]), 114, dtype=np.uint8)  # base image with 4 tiles
+                    x1a, y1a, x2a, y2a = max(xc - w, 0), max(yc - h, 0), xc, yc  # xmin, ymin, xmax, ymax (large image)
+                    x1b, y1b, x2b, y2b = w - (x2a - x1a), h - (y2a - y1a), w, h  # xmin, ymin, xmax, ymax (small image)
+                elif i == 1:  # top right
+                    x1a, y1a, x2a, y2a = xc, max(yc - h, 0), min(xc + w, s * 2), yc
+                    x1b, y1b, x2b, y2b = 0, h - (y2a - y1a), min(w, x2a - x1a), h
+                elif i == 2:  # bottom left
+                    x1a, y1a, x2a, y2a = max(xc - w, 0), yc, xc, min(s * 2, yc + h)
+                    x1b, y1b, x2b, y2b = w - (x2a - x1a), 0, w, min(y2a - y1a, h)
+                elif i == 3:  # bottom right
+                    x1a, y1a, x2a, y2a = xc, yc, min(xc + w, s * 2), min(s * 2, yc + h)
+                    x1b, y1b, x2b, y2b = 0, 0, min(w, x2a - x1a), min(y2a - y1a, h)
 
-            labels_patch = self._update_labels(labels_patch, padw, padh)
-            mosaic_labels.append(labels_patch)
-        final_labels = self._cat_labels(mosaic_labels)
-        final_labels["img"] = img4
+                img4[y1a:y2a, x1a:x2a] = img[y1b:y2b, x1b:x2b]  # img4[ymin:ymax, xmin:xmax]
+                padw = x1a - x1b
+                padh = y1a - y1b
+
+                labels_patch_updated = self._update_labels(labels_patch, padw, padh)
+                mosaic_labels.append(labels_patch_updated)
+
+            # Calculate the coordinates of the center region
+            x_center = img4.shape[1] // 2
+            y_center = img4.shape[0] // 2
+            half_target = target_size // 2
+            x_start = x_center - half_target
+            y_start = y_center - half_target
+            x_end = x_center + half_target
+            y_end = y_center + half_target
+            
+            temp_labels = self._cat_labels(mosaic_labels)
+            temp_labels["img"] = img4
+            instances = temp_labels["instances"]
+            bboxes = instances._bboxes.bboxes
+
+            # Count bounding boxes that fall inside the center region
+            for bbox in bboxes:
+                x_min, y_min, x_max, y_max = bbox
+
+                # Calculate original bbox area
+                original_area = max(0, x_max - x_min) * max(0, y_max - y_min)
+
+                # Clip the bounding box to the center region
+                clipped_x_min = max(x_min, x_start)
+                clipped_y_min = max(y_min, y_start)
+                clipped_x_max = min(x_max, x_end)
+                clipped_y_max = min(y_max, y_end)
+
+                # Calculate clipped area
+                if clipped_x_min < clipped_x_max and clipped_y_min < clipped_y_max:
+                    clipped_area = (clipped_x_max - clipped_x_min) * (clipped_y_max - clipped_y_min)
+                else:
+                    clipped_area = 0
+
+                if original_area > 0:
+                    visibility_ratio = clipped_area / original_area
+                else:
+                    visibility_ratio = 0
+
+                # print(f"BBox visibility: {visibility_ratio * 100:.2f}%")
+
+                # Apply visibility logic
+                if visibility_ratio == 1:
+                    # 100% in view
+                    bbox_count += 1
+                elif 0 < visibility_ratio < 0.9:
+                    # Partially in view, apply penalty
+                    bbox_count -= 1
+
+            
+            
+            if bbox_count > highest_bbox_count:
+                highest_bbox_count = bbox_count
+                final_labels = temp_labels
+            elif final_labels is None and t == try_count-1:
+                final_labels = temp_labels
+
+        # self.visualize_mosaic(final_labels)
         return final_labels
 
     def _mosaic9(self, labels):
@@ -1841,15 +1940,14 @@ class Albumentations:
 
             # Transforms
             T = [
-                A.Blur(p=0.01),
-                A.MedianBlur(p=0.01),
-                A.ToGray(p=0.01),
-                A.CLAHE(p=0.01),
-                A.RandomBrightnessContrast(p=0.3),
+                A.Blur(p=0.00),
+                A.MedianBlur(p=0.00),
+                A.ToGray(p=0.00),
+                A.CLAHE(p=0.00),
+                A.GaussNoise(p=0.00),
+                A.RandomBrightnessContrast(p=0.0),
                 A.RandomGamma(p=0.0),
-                A.ImageCompression(quality_lower=75, p=0.0, compression_type=A.augmentations.transforms.ImageCompression.ImageCompressionType.WEBP),
-                A.GaussNoise(p=0.2),
-                A.Spatter(p=0.1),
+                A.ImageCompression(quality_lower=75, p=0.0),
             ]
 
             # Compose transforms
