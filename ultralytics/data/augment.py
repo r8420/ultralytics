@@ -664,7 +664,7 @@ class Mosaic(BaseMixTransform):
         bboxes = instances._bboxes.bboxes
 
         img_size = img.shape[0]  # Assuming square images
-        target_size = 1280*0.9
+        target_size = 1280
 
         # Calculate the coordinates of the center region
         x_center = img_size // 2
@@ -712,12 +712,12 @@ class Mosaic(BaseMixTransform):
                 image as a numpy array, and other keys contain the combined and adjusted labels for all four images.
         """
         s = self.imgsz
-        target_size = 1280*0.9  # The central region size to check
+        target_size = 1280  # The central region size to check
         temp_labels = None
         final_labels = None
         highest_bbox_count = -5
 
-        try_count = 10
+        try_count = 20
         for t in range(try_count):
             # print(f"attempt {t}")
             yc, xc = (int(random.uniform(-x, 2 * s + x)) for x in self.border)  # mosaic center x, y
@@ -760,6 +760,9 @@ class Mosaic(BaseMixTransform):
             y_start = y_center - half_target
             x_end = x_center + half_target
             y_end = y_center + half_target
+
+            # Define a 10% margin around the image borders
+            border_margin = 0.1 * img4.shape[0]  # 10% margin (adjust if necessary)
             
             temp_labels = self._cat_labels(mosaic_labels)
             temp_labels["img"] = img4
@@ -790,16 +793,24 @@ class Mosaic(BaseMixTransform):
                 else:
                     visibility_ratio = 0
 
-                # print(f"BBox visibility: {visibility_ratio * 100:.2f}%")
+                # Check if the bounding box is within the 10% margin from the borders
+                near_border = (
+                    x_min < border_margin or x_max > img4.shape[1] - border_margin or
+                    y_min < border_margin or y_max > img4.shape[0] - border_margin
+                )
+
+
 
                 # Apply visibility logic
                 if visibility_ratio == 1:
-                    # 100% in view
-                    bbox_count += 1
+                    if near_border:
+                        # Penalize fully visible bboxes near the border
+                        bbox_count -= 1
+                    else:
+                        bbox_count += 1  # Fully visible and not near the border
                 elif 0 < visibility_ratio < 0.9:
                     # Partially in view, apply penalty
                     bbox_count -= 1
-
             
             
             if bbox_count > highest_bbox_count:
