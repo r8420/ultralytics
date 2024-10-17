@@ -717,7 +717,7 @@ class Mosaic(BaseMixTransform):
         final_labels = None
         highest_bbox_count = -5
 
-        try_count = 20
+        try_count = 3
         for t in range(try_count):
             # print(f"attempt {t}")
             yc, xc = (int(random.uniform(-x, 2 * s + x)) for x in self.border)  # mosaic center x, y
